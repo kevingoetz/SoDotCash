@@ -1,12 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Security;
-using System.Windows;
 using System.Windows.Input;
 using GalaSoft.MvvmLight;
 using GalaSoft.MvvmLight.CommandWpf;
-using OFX;
 using SoDotCash.Models;
+using SoDotCash.Services;
 
 namespace SoDotCash.ViewModels
 {
@@ -154,26 +153,12 @@ namespace SoDotCash.ViewModels
 
             // TODO: Spinner/progress indicator
 
+            // Form Credentials
+            var fiCredentials = new OFX.Types.Credentials(FinancialInstitutionUsername,
+                FinancialInstitutionPassword.ToString());
+
             // Retrieve accounts from fI
-            var ofxService = new OFX2Service(SelectedFinancialInstitution, new OFX.Types.Credentials(FinancialInstitutionUsername, FinancialInstitutionPassword.ToString()));
-            var accountList = new List<Account>();
-            var ofxAccountList = await ofxService.ListAccounts();
-
-            // TODO: If ofxAccountList is null, display error message
-
-            foreach (var ofxAccount in ofxAccountList)
-            {
-                // Convert from OFX account type to db account type
-                AccountType accountType = AccountType.CHECKING;
-                if (ofxAccount.GetType() == typeof(OFX.Types.CheckingAccount))
-                    accountType = AccountType.CHECKING;
-                else if (ofxAccount.GetType() == typeof(OFX.Types.SavingsAccount))
-                    accountType = AccountType.SAVINGS;
-                else if (ofxAccount.GetType() == typeof(OFX.Types.CreditCardAccount))
-                    accountType = AccountType.CREDITCARD;
-                accountList.Add(new Account {accountName=accountType.ToString() + ":" + ofxAccount.AccountId, accountType=accountType.ToString(),currency="USD", fiAccountID = ofxAccount.AccountId});
-            }
-            AvailableAccounts = accountList;
+            AvailableAccounts = await UpdateService.EnumerateNewAccounts(SelectedFinancialInstitution, fiCredentials);
         }
 
         #endregion
@@ -311,25 +296,42 @@ namespace SoDotCash.ViewModels
             using (var db = new SoCashDbContext())
             {
                 // TODO: See if there's an existing FI or user with this info already
-
-                // Create FI
-                var fi = new FinancialInstitution
+                // Look for existing FI entry with the same name
+                FinancialInstitution fi;
+                try
                 {
-                    name = SelectedFinancialInstitution.Name,
-                    ofxFinancialUnitId = SelectedFinancialInstitution.FinancialId,
-                    ofxOrganizationId = SelectedFinancialInstitution.OrganizationId,
-                    ofxUpdateUrl = SelectedFinancialInstitution.ServiceEndpoint.ToString()
-                };
-                db.FinancialInstitutions.Add(fi);
-
-                // Create FIUser
-                var fiUser = new FinancialInstitutionUser
+                    fi = db.FinancialInstitutions.First(i => i.name == SelectedFinancialInstitution.Name);
+                }
+                catch (InvalidOperationException)
                 {
-                    userId = FinancialInstitutionUsername,
-                    password = FinancialInstitutionPassword
-                };
-                fi.users.Add(fiUser);
-                db.FinancialInstitutionUsers.Add(fiUser);
+                    // FI Doesn't exist, add a new one
+                    fi = new FinancialInstitution
+                    {
+                        name = SelectedFinancialInstitution.Name,
+                        ofxFinancialUnitId = SelectedFinancialInstitution.FinancialId,
+                        ofxOrganizationId = SelectedFinancialInstitution.OrganizationId,
+                        ofxUpdateUrl = SelectedFinancialInstitution.ServiceEndpoint.ToString()
+                    };
+                    db.FinancialInstitutions.Add(fi);
+                }
+
+                // Look for existing user under this FI with same userId
+                FinancialInstitutionUser fiUser;
+                try
+                {
+                    fiUser = fi.users.First(u => u.userId == FinancialInstitutionUsername && u.password == FinancialInstitutionPassword);
+                }
+                catch (Exception)
+                {
+                    // User doesn't exist, add a new one
+                    fiUser = new FinancialInstitutionUser
+                    {
+                        userId = FinancialInstitutionUsername,
+                        password = FinancialInstitutionPassword
+                    };
+                    fi.users.Add(fiUser);
+                    db.FinancialInstitutionUsers.Add(fiUser);
+                }
 
                 // Create Account
                 var newAccount = new Account(SelectedAccount);

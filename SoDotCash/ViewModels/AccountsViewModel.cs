@@ -1,13 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Input;
 using GalaSoft.MvvmLight;
 using GalaSoft.MvvmLight.CommandWpf;
 using Microsoft.Win32;
-using OFX;
-using OFX.Types;
+using SoDotCash.Services;
 
 namespace SoDotCash.ViewModels
 {
@@ -107,7 +105,19 @@ namespace SoDotCash.ViewModels
                 {
                     // Retrieve account - we need to get an entity in the current db session
                     var dbAccount = db.Accounts.First(account => account.accountID == SelectedAccount.accountID);
-                    return dbAccount.transactions.ToList();
+                    var transactions = from t in dbAccount.transactions orderby t.date select t;
+
+                    // Calculate running balance
+                    int balance = 0;
+                    foreach (var transaction in transactions)
+                    {
+                        balance += transaction.amount;
+                        transaction.balance = balance;
+                    }
+
+                    // Reverse transactions so newest are listed first
+                    return transactions.Reverse();
+
                 }
             }
         }
@@ -157,71 +167,36 @@ namespace SoDotCash.ViewModels
                 return;
             }
 
-            // TODO: Move the logic below to a service
-
-
-            // Read and convert
+            // Open the file the user selected for read
             using (var ofxFileStream = fileDialog.OpenFile())
             {
-                // Deserialize the OFX file data to an object form
-                var converter = new OFX1ToOFX2Converter(ofxFileStream);
-                foreach (var statement in Statement.CreateFromOFXResponse(converter.ConvertToOFX()))
-                {
-                    using (var db = new Models.SoCashDbContext())
-                    {
-
-                        // Retrieve account - we need to get an entity in the current db session
-                        var updateAccount = db.Accounts.First(account => account.accountID == SelectedAccount.accountID);
-
-                        // KG: temp variable to store last transaction total
-                        decimal bufferAccountBalance = statement.LocalizedAccountBalance;
-                        //
-
-                        foreach (var transaction in statement.Transactions)
-                        {
-                            // See if transaction is already in db
-                            try
-                            {
-                                var existingTransaction =
-                                    updateAccount.transactions.First(t => t.fiTransactionId == transaction.TransactionId);
-
-                                // Ensure amount and date of transaction match
-                                existingTransaction.amount = transaction.Amount;
-                                existingTransaction.date = transaction.PostDate.Date;
-                            }
-                            catch (InvalidOperationException)
-                            {
-                                // No such transaction, add entity
-
-                                // Create model transaction
-                                var dbTransaction = new Models.Transaction
-                                {
-                                    amount = transaction.Amount,
-                                    category = "",
-                                    currency = statement.Currency,
-                                    date = transaction.PostDate.Date,
-                                    description = transaction.Name,
-                                    fiTransactionId = transaction.TransactionId,
-                                    // KG: store account balance in transactions.
-                                    accountBalance = bufferAccountBalance
-                                    
-                                };
-                                updateAccount.transactions.Add(dbTransaction);
-
-                                // KG: subtract from bufferAccountBalance to get new balance, divide by 100m to match 
-                                bufferAccountBalance -= (transaction.Amount / 100m);
- 
-                            }
-                        }
-
-                        //db.Accounts.Add(newAccount);
-                        db.SaveChanges();
-                    }
-                }
+                // Parse the file and merge transactions into the current account
+                UpdateService.MergeOfxFileIntoAccount(SelectedAccount, ofxFileStream);
             }
 
             // Update transactions
-            //ActiveTransactions.RaisePropertyChanged("Transactions");
+            RaisePropertyChanged("Transactions");
+        }
+
+
+        /// <summary>
+        /// Binding for the Download Transactions button
+        /// </summary>
+        private ICommand _downloadTransactionsCommand;
+        public ICommand DownloadTransactionsCommand
+        {
+            get { return _downloadTransactionsCommand ?? (_downloadTransactionsCommand = new RelayCommand(DownloadTransactions, () => SelectedAccount?.fiUserID != null)); }
+        }
+
+        /// <summary>
+        /// Initiates a download of transactions from the remote financial institution
+        /// </summary>
+        public void DownloadTransactions()
+        {
+            UpdateService.DownloadOfxTransactionsForAccount(SelectedAccount);
+
+            // Update transactions
+            RaisePropertyChanged("Transactions");
         }
 
     }

@@ -63,7 +63,7 @@
                     <ListView ItemsSource="{Binding Transactions}" Grid.ColumnSpan="2">
                         <ListView.View>
                             <GridView>
-                                <GridViewColumn Header="Date" DisplayMemberBinding="{Binding date, StringFormat=\{0:dd/MMM/yyyy-hh:mm:ss tt\}}" />
+                                <GridViewColumn Header="Date" DisplayMemberBinding="{Binding date, StringFormat=\{0:d\}}" />
                                 <GridViewColumn Header="Name" DisplayMemberBinding="{Binding description}" />
                                 <GridViewColumn Header="Amount" DisplayMemberBinding="{Binding localizedAmount, StringFormat=\{0:C2\}}" >
                                     <GridViewColumn.CellTemplate>
@@ -77,7 +77,7 @@
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
                                 <GridViewColumn Header="Transaction ID" DisplayMemberBinding="{Binding fiTransactionId}" />
-                                <GridViewColumn Header="Account Balance" DisplayMemberBinding="{Binding accountBalance, StringFormat=\{0:C2\}}" />
+                                <GridViewColumn Header="Account Balance" DisplayMemberBinding="{Binding localizedBalance, StringFormat=\{0:C2\}}" />
                             </GridView>
                         </ListView.View>
                     </ListView>
@@ -85,8 +85,13 @@
             </TabItem>
             <TabItem Header="Import">
                 <Grid  Width="740" Height="300">
-                    <Label Content="TODO: Fill this in (Import)"/>
-                    <Button x:Name="button_importTransactions" Content="Import Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding ImportTransactionsCommand}" Margin="0,24,0,0"/>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="This section allows you to import transactions from an OFX/QFX file. If this account is linked with a supported online financial institution, you may also download transactions." TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="button_importTransactions" Content="Import Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding ImportTransactionsCommand}" />
+                            <Button x:Name="button_downloadTransactions" Content="Download Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding DownloadTransactionsCommand}" Margin="20,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
                 </Grid>
             </TabItem>
             <TabItem Header="Configuration">
