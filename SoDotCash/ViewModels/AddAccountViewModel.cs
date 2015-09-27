@@ -38,16 +38,16 @@ namespace SoDotCash.ViewModels
         /// <summary>
         /// Bound selected account source
         /// </summary>
-        private EAccountSource _AccountSource;
+        private EAccountSource _accountSource;
         public EAccountSource AccountSource
         {
-            get { return _AccountSource; }
+            get { return _accountSource; }
             set
             {
-                _AccountSource = value;
+                _accountSource = value;
                 RaisePropertyChanged();
-                RaisePropertyChanged("IsManualEntry");
-                RaisePropertyChanged("IsAutomaticEntry");
+                RaisePropertyChanged(() => IsManualEntry);
+                RaisePropertyChanged(() => IsAutomaticEntry);
             }
         }
 
@@ -76,7 +76,7 @@ namespace SoDotCash.ViewModels
         #region [ Automatic Entry Fields ]
 
         /// <summary>
-        /// Bound to autoamtic entry grid to control visibility
+        /// Bound to automatic entry grid to control visibility
         /// </summary>
         public bool IsAutomaticEntry => AccountSource == EAccountSource.Automatic;
 
@@ -103,31 +103,22 @@ namespace SoDotCash.ViewModels
         /// <summary>
         /// List of accounts available from financial institution using the provided credentials
         /// </summary>
-        private IEnumerable<Account> _AvailableAccounts;
+        private IEnumerable<Account> _availableAccounts;
         public IEnumerable<Account> AvailableAccounts
         {
-            get { return _AvailableAccounts; }
+            get { return _availableAccounts; }
             set
             {
-                _AvailableAccounts = value;
+                _availableAccounts = value;
                 RaisePropertyChanged();
-                RaisePropertyChanged("HasAvailableAccounts");
+                RaisePropertyChanged(() => HasAvailableAccounts);
             }
         }
 
         /// <summary>
         /// The account selected from the list presented by the FI
         /// </summary>
-        private Account _SelectedAccount;
-        public Account SelectedAccount
-        {
-            get {  return _SelectedAccount; }
-            set
-            {
-                _SelectedAccount = value;
-                //_createAccountCommand.RaiseCanExecuteChanged();
-            }
-        }
+        public Account SelectedAccount { get; set; }
 
         /// <summary>
         /// Bound to autoamtic entry grid to control visibility
@@ -151,14 +142,11 @@ namespace SoDotCash.ViewModels
             // Clear current list of accounts
             AvailableAccounts = null;
 
-            // TODO: Spinner/progress indicator
-
             // Form Credentials
-            var fiCredentials = new OFX.Types.Credentials(FinancialInstitutionUsername,
-                FinancialInstitutionPassword.ToString());
+            var fiCredentials = new OFX.Types.Credentials(FinancialInstitutionUsername, FinancialInstitutionPassword);
 
             // Retrieve accounts from fI
-            AvailableAccounts = await UpdateService.EnumerateNewAccounts(SelectedFinancialInstitution, fiCredentials);
+            AvailableAccounts = await UpdateService.EnumerateNewAccounts(SelectedFinancialInstitution, fiCredentials).ConfigureAwait(false);
         }
 
         #endregion
@@ -271,26 +259,35 @@ namespace SoDotCash.ViewModels
         /// <summary>
         /// Create a manual-entry account from the provided information
         /// </summary>
-        protected void CreateManualAccount()
+        /// <returns>Created account</returns>
+        protected Account CreateManualAccount()
         {
             // Add the new account
             using (var db = new SoCashDbContext())
             {
+                // Fill in account data
                 var newAccount = new Account
                 {
-                    accountName = AccountName,
-                    accountType = SelectedAccountType,
-                    currency = "USD"
+                    AccountName = AccountName,
+                    AccountType = SelectedAccountType,
+                    Currency = "USD"
                 };
+
+                // Add to database
                 db.Accounts.Add(newAccount);
+
+                // Commit changes
                 db.SaveChanges();
+
+                return newAccount;
             }
         }
 
         /// <summary>
         /// Create an automatic-update account from the provided information
         /// </summary>
-        protected void CreateAutomaticAccount()
+        /// <returns>Created account</returns>
+        protected Account CreateAutomaticAccount()
         {
             // Add the new account, financial institution and user
             using (var db = new SoCashDbContext())
@@ -300,17 +297,17 @@ namespace SoDotCash.ViewModels
                 FinancialInstitution fi;
                 try
                 {
-                    fi = db.FinancialInstitutions.First(i => i.name == SelectedFinancialInstitution.Name);
+                    fi = db.FinancialInstitutions.First(i => i.Name == SelectedFinancialInstitution.Name);
                 }
                 catch (InvalidOperationException)
                 {
                     // FI Doesn't exist, add a new one
                     fi = new FinancialInstitution
                     {
-                        name = SelectedFinancialInstitution.Name,
-                        ofxFinancialUnitId = SelectedFinancialInstitution.FinancialId,
-                        ofxOrganizationId = SelectedFinancialInstitution.OrganizationId,
-                        ofxUpdateUrl = SelectedFinancialInstitution.ServiceEndpoint.ToString()
+                        Name = SelectedFinancialInstitution.Name,
+                        OfxFinancialUnitId = SelectedFinancialInstitution.FinancialId,
+                        OfxOrganizationId = SelectedFinancialInstitution.OrganizationId,
+                        OfxUpdateUrl = SelectedFinancialInstitution.ServiceEndpoint.ToString()
                     };
                     db.FinancialInstitutions.Add(fi);
                 }
@@ -319,28 +316,30 @@ namespace SoDotCash.ViewModels
                 FinancialInstitutionUser fiUser;
                 try
                 {
-                    fiUser = fi.users.First(u => u.userId == FinancialInstitutionUsername && u.password == FinancialInstitutionPassword);
+                    fiUser = fi.Users.First(u => u.UserId == FinancialInstitutionUsername && u.Password == FinancialInstitutionPassword);
                 }
                 catch (Exception)
                 {
                     // User doesn't exist, add a new one
                     fiUser = new FinancialInstitutionUser
                     {
-                        userId = FinancialInstitutionUsername,
-                        password = FinancialInstitutionPassword
+                        UserId = FinancialInstitutionUsername,
+                        Password = FinancialInstitutionPassword
                     };
-                    fi.users.Add(fiUser);
+                    fi.Users.Add(fiUser);
                     db.FinancialInstitutionUsers.Add(fiUser);
                 }
 
                 // Create Account
                 var newAccount = new Account(SelectedAccount);
                 // Replace name with the user's chosen name
-                newAccount.accountName = AccountName;
-                fiUser.accounts.Add(newAccount);
+                newAccount.AccountName = AccountName;
+                fiUser.Accounts.Add(newAccount);
                 db.Accounts.Add(newAccount);
 
                 db.SaveChanges();
+
+                return newAccount;
             }
         }
 
@@ -350,14 +349,24 @@ namespace SoDotCash.ViewModels
         public void CreateAccount()
         {
             // Create the account of the appropriate manual/automatic type
+            Account newAccount;
             if (CanCreateManualAccount())
-                CreateManualAccount();
+                newAccount = CreateManualAccount();
             else if (CanCreateAutomaticAccount())
-               CreateAutomaticAccount();
+            {
+                // Create the automatic account
+                newAccount = CreateAutomaticAccount();
+
+                // Start an automatic retrieval of transactions
+                UpdateService.DownloadOfxTransactionsForAccount(newAccount);
+            }
+            else
+                return; // TODO: Should be unreachable
 
             // Transition back to accounts view
             var locator = new ViewModelLocator();
             locator.Main.ActiveViewModel = locator.Accounts;
+            locator.Accounts.SelectedAccount = newAccount;
         }
 
 

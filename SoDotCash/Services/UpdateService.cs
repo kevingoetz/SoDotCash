@@ -21,53 +21,104 @@ namespace SoDotCash.Services
         /// <param name="statement">The statement containing the transactions to merge. The statement owning account ID must match the ID of the passed account.</param>
         public static void MergeStatementTransactionsIntoAccount(Account account, OFX.Types.Statement statement)
         {
-            using (var db = new SoCashDbContext())
+            using (BackgroundTaskTracker.BeginTask("Processing Transactions"))
             {
-                // Retrieve matching account from DB - we need to get an entity in the current db session
-                var updateAccount = db.Accounts.First(dbAccount => dbAccount.accountID == account.accountID);
-
-                // If the account has no account ID set, set it from the imported statement
-                if (updateAccount.fiAccountID == null)
-                    updateAccount.fiAccountID = statement.OwningAccount.AccountId;
-                else if (updateAccount.fiAccountID != statement.OwningAccount.AccountId)
+                using (var db = new SoCashDbContext())
                 {
-                    // TODO: Raise an error - this statement does not match the specified account.
-                }
+                    // Retrieve matching account from DB - we need to get an entity in the current db session
+                    var updateAccount = db.Accounts.First(dbAccount => dbAccount.AccountId == account.AccountId);
 
-
-                foreach (var transaction in statement.Transactions)
-                {
-                    // See if transaction is already in db
-                    try
+                    // If the account has no account ID set, set it from the imported statement
+                    if (updateAccount.FiAccountId == null)
+                        updateAccount.FiAccountId = statement.OwningAccount.AccountId;
+                    else if (updateAccount.FiAccountId != statement.OwningAccount.AccountId)
                     {
-                        var existingTransaction =
-                            updateAccount.transactions.First(t => t.fiTransactionId == transaction.TransactionId);
-
-                        // Ensure amount and date of transaction match
-                        existingTransaction.amount = transaction.Amount;
-                        existingTransaction.date = transaction.PostDate.Date;
+                        // TODO: Raise an error - this statement does not match the specified account.
                     }
-                    catch (InvalidOperationException)
-                    {
-                        // No such transaction, add entity
 
-                        // Create model transaction
-                        var dbTransaction = new Transaction
+                    // Add each transaction, and keep track of the earliest and latest dates
+                    DateTimeOffset earliestTransaction = DateTimeOffset.MaxValue;
+                    DateTimeOffset latestTransaction = DateTimeOffset.MinValue;
+                    foreach (var transaction in statement.Transactions)
+                    {
+                        // Update date of earliest and latest transaction
+                        if (earliestTransaction > transaction.PostDate)
+                            earliestTransaction = transaction.PostDate;
+                        if (latestTransaction < transaction.PostDate)
+                            latestTransaction = transaction.PostDate;
+
+                        // See if transaction is already in db
+                        try
                         {
-                            amount = transaction.Amount,
-                            category = "",
-                            currency = statement.Currency,
-                            date = transaction.PostDate.Date,
-                            description = transaction.Name,
-                            fiTransactionId = transaction.TransactionId,
+                            var existingTransaction =
+                                updateAccount.Transactions.First(t => t.FiTransactionId == transaction.TransactionId);
 
-                        };
-                        updateAccount.transactions.Add(dbTransaction);
+                            // Ensure amount and date of transaction match
+                            existingTransaction.Amount = transaction.Amount;
+                            existingTransaction.Date = transaction.PostDate.Date;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // No such transaction, add entity
 
+                            // Create model transaction
+                            var dbTransaction = new Transaction
+                            {
+                                Amount = transaction.Amount,
+                                CategoryName = "",
+                                Date = transaction.PostDate.Date,
+                                Description = transaction.Name,
+                                FiTransactionId = transaction.TransactionId,
+
+                            };
+                            updateAccount.Transactions.Add(dbTransaction);
+
+                        }
                     }
-                }
 
-                db.SaveChanges();
+                    // Sum all transactions in the data set and ensure the balance on the date of the end of the statement matches the reported balance
+                    var dbBalance = updateAccount.Transactions.Where(t => t.Date <= latestTransaction)
+                        .Sum(t => t.Amount);
+                    if (dbBalance != statement.AccountBalance)
+                    {
+                        // Need to add or modify a filler transaction
+                        try
+                        {
+                            // Look for a pre-existing filler transaction as the transaction prior to the start of this statement
+                            var fillerTransaction =
+                                updateAccount.Transactions.Where(t => t.Date < earliestTransaction)
+                                    .OrderByDescending(t => t.Date)
+                                    .First();
+                            // If this is not a balance adjustment transaction, move to creating a new transaction to adjust
+                            if (fillerTransaction.Description != "Balance Adjustment")
+                                throw new InvalidOperationException();
+
+                            // An existing balance adjustment is in place. Modify;
+                            fillerTransaction.Amount += (statement.AccountBalance - dbBalance);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Determine date of filler - don't use a date in the future
+                            var fillerDate = (earliestTransaction - new TimeSpan(1, 0, 0, 0)).DateTime;
+                            if (fillerDate > DateTime.Now)
+                                fillerDate = DateTime.Now;
+
+                            // No existing balance adjustment transaction exists. Add one.
+                            var fillerTransaction = new Transaction
+                            {
+                                Amount = (statement.AccountBalance - dbBalance),
+                                CategoryName = "BALADJUST",
+                                Description = "Balance Adjustment",
+                                FiTransactionId = Guid.NewGuid().ToString(),
+                                Date = fillerDate
+                            };
+                            updateAccount.Transactions.Add(fillerTransaction);
+                        }
+                    }
+
+
+                    db.SaveChanges();
+                }
             }
         }
 
@@ -105,76 +156,82 @@ namespace SoDotCash.Services
         /// Download OFX transactions for an account and merge them into the account transaction list
         /// </summary>
         /// <param name="account">Account configured with financial institution login information</param>
-        public static async void DownloadOfxTransactionsForAccount(Account account)
+        public static async Task DownloadOfxTransactionsForAccount(Account account)
         {
-            // Default retrieval parameters
-            OFX2Service ofxService;
-            OFX.Types.Account ofxAccount;
-            var endTime = DateTimeOffset.Now;
-            var startTime = new DateTimeOffset(new DateTime(1997,1,1));
-
-            using (var db = new SoCashDbContext())
+            using (BackgroundTaskTracker.BeginTask("Downloading statements"))
             {
-                // Retrieve matching account from DB - we need to get an entity in the current db session
-                var updateAccount = db.Accounts.First(dbAccount => dbAccount.accountID == account.accountID);
+                // Default retrieval parameters
+                OFX2Service ofxService;
+                OFX.Types.Account ofxAccount;
+                var endTime = DateTimeOffset.Now;
+                var startTime = new DateTimeOffset(new DateTime(1997, 1, 1));
 
-                // Form FI connection properties for transaction retrieval
-                var fi = new OFX.Types.FinancialInstitution(
-                    updateAccount.financialInstitutionUser.financialInstitution.name,
-                    new Uri(updateAccount.financialInstitutionUser.financialInstitution.ofxUpdateUrl),
-                    updateAccount.financialInstitutionUser.financialInstitution.ofxOrganizationId,
-                    updateAccount.financialInstitutionUser.financialInstitution.ofxFinancialUnitId
-                    );
-
-                // Form credentials for login
-                var credentials = new OFX.Types.Credentials(
-                    updateAccount.financialInstitutionUser.userId,
-                    updateAccount.financialInstitutionUser.password
-                    );
-
-                // Create service
-                ofxService = new OFX2Service(fi, credentials);
-
-                // Create proper account type for this account
-                var accountType = (AccountType) account.accountType;
-                if (accountType == AccountType.CHECKING)
+                using (var db = new SoCashDbContext())
                 {
-                    // Split routing and account id from combined string
-                    var accountIdComponents = account.fiAccountID.Split(':');
-                    ofxAccount = new OFX.Types.CheckingAccount(accountIdComponents[0], accountIdComponents[1], "", true);
-                }
-                else if (accountType == AccountType.SAVINGS)
-                {
-                    // Split routing and account id from combined string
-                    var accountIdComponents = account.fiAccountID.Split(':');
-                    ofxAccount = new OFX.Types.SavingsAccount(accountIdComponents[0], accountIdComponents[1], "", true);
-                }
-                else //if (accountType == AccountType.CREDITCARD)
-                {
-                    ofxAccount = new OFX.Types.CreditCardAccount(account.fiAccountID, "", true);
+                    // Retrieve matching account from DB - we need to get an entity in the current db session
+                    var updateAccount = db.Accounts.First(dbAccount => dbAccount.AccountId == account.AccountId);
+
+                    // Form FI connection properties for transaction retrieval
+                    var fi = new OFX.Types.FinancialInstitution(
+                        updateAccount.FinancialInstitutionUser.FinancialInstitution.Name,
+                        new Uri(updateAccount.FinancialInstitutionUser.FinancialInstitution.OfxUpdateUrl),
+                        updateAccount.FinancialInstitutionUser.FinancialInstitution.OfxOrganizationId,
+                        updateAccount.FinancialInstitutionUser.FinancialInstitution.OfxFinancialUnitId
+                        );
+
+                    // Form credentials for login
+                    var credentials = new OFX.Types.Credentials(
+                        updateAccount.FinancialInstitutionUser.UserId,
+                        updateAccount.FinancialInstitutionUser.Password
+                        );
+
+                    // Create service
+                    ofxService = new OFX2Service(fi, credentials);
+
+                    // Create proper account type for this account
+                    var accountType = (AccountType) account.AccountType;
+                    if (accountType == AccountType.Checking)
+                    {
+                        // Split routing and account id from combined string
+                        var accountIdComponents = account.FiAccountId.Split(':');
+                        ofxAccount = new OFX.Types.CheckingAccount(accountIdComponents[0], accountIdComponents[1],
+                            "",
+                            true);
+                    }
+                    else if (accountType == AccountType.Savings)
+                    {
+                        // Split routing and account id from combined string
+                        var accountIdComponents = account.FiAccountId.Split(':');
+                        ofxAccount = new OFX.Types.SavingsAccount(accountIdComponents[0], accountIdComponents[1], "",
+                            true);
+                    }
+                    else //if (accountType == AccountType.CREDITCARD)
+                    {
+                        ofxAccount = new OFX.Types.CreditCardAccount(account.FiAccountId, "", true);
+                    }
+
+                    // Use the start time of the latest transaction if we have any
+                    try
+                    {
+                        var lastTransaction =
+                            (from transaction in updateAccount.Transactions
+                                orderby transaction.Date descending
+                                select transaction).First();
+                        startTime = new DateTimeOffset(lastTransaction.Date);
+
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // No transactions - ignore and use default start date.
+                    }
+
                 }
 
-                // Use the start time of the latest transaction if we have any
-                try
-                {
-                    var lastTransaction =
-                        (from transaction in updateAccount.transactions
-                         orderby transaction.date descending
-                         select transaction).First();
-                    startTime = new DateTimeOffset(lastTransaction.date);
-
-                }
-                catch (InvalidOperationException)
-                {
-                    // No transactions - ignore and use default start date.
-                }
-
-            }
-
-            // Retrieve statement(s) (should only be one per protocol, but we can handle any number)
-            var ofxStatments = await ofxService.GetStatement(ofxAccount, startTime, endTime);
-            foreach (var ofxStatement in ofxStatments)
+                // Retrieve statement(s) (should only be one per protocol, but we can handle any number)
+                var ofxStatments = await ofxService.GetStatement(ofxAccount, startTime, endTime).ConfigureAwait(false);
+                foreach (var ofxStatement in ofxStatments)
                     MergeStatementTransactionsIntoAccount(account, ofxStatement);
+            }
 
         }
 
@@ -184,62 +241,94 @@ namespace SoDotCash.Services
         /// <param name="financialInstitution">Financial institution to query</param>
         /// <param name="fiCredentials">Credentials for financial institution account</param>
         /// <returns>List of accounts</returns>
-        public static async Task<IEnumerable<Account>> EnumerateNewAccounts(OFX.Types.FinancialInstitution financialInstitution, OFX.Types.Credentials fiCredentials)
+        public static async Task<IEnumerable<Account>> EnumerateNewAccounts(
+            OFX.Types.FinancialInstitution financialInstitution, OFX.Types.Credentials fiCredentials)
         {
-            var ofxService = new OFX2Service(financialInstitution, fiCredentials);
-            var accountList = new List<Account>();
-            var ofxAccountList = await ofxService.ListAccounts();
 
-            // TODO: If ofxAccountList is null, raise an exception
-
-            using (var db = new SoCashDbContext())
+            using (BackgroundTaskTracker.BeginTask("Retrieving Account Information"))
             {
 
+                var ofxService = new OFX2Service(financialInstitution, fiCredentials);
+                var accountList = new List<Account>();
+                var ofxAccountList = await ofxService.ListAccounts().ConfigureAwait(false);
 
-                foreach (var ofxAccount in ofxAccountList)
+                // TODO: If ofxAccountList is null, raise an exception
+
+                using (var db = new SoCashDbContext())
                 {
-                    // Convert from OFX account type to db account type and encode account id 
-                    AccountType accountType = AccountType.CHECKING;
-                    string accountId = "";
-                    if (ofxAccount.GetType() == typeof (OFX.Types.CheckingAccount))
-                    {
-                        accountType = AccountType.CHECKING;
-                        accountId = ((OFX.Types.CheckingAccount) ofxAccount).RoutingId + ":" + ofxAccount.AccountId;
-                    }
-                    else if (ofxAccount.GetType() == typeof (OFX.Types.SavingsAccount))
-                    {
-                        accountType = AccountType.SAVINGS;
-                        accountId = ((OFX.Types.CheckingAccount) ofxAccount).RoutingId + ":" + ofxAccount.AccountId;
-                    }
-                    else if (ofxAccount.GetType() == typeof (OFX.Types.CreditCardAccount))
-                    {
-                        accountType = AccountType.CREDITCARD;
-                        accountId = ofxAccount.AccountId;
-                    }
 
-                    // Look for a matching account in the database
-                    if (!db.Accounts.Any(a => a.fiAccountID == accountId))
+
+                    foreach (var ofxAccount in ofxAccountList)
                     {
-                        // This account is not already in the DB, add to new account list
-                        accountList.Add(new Account
+                        // Convert from OFX account type to db account type and encode account id 
+                        AccountType accountType = AccountType.Checking;
+                        string accountId = "";
+                        if (ofxAccount.GetType() == typeof (OFX.Types.CheckingAccount))
                         {
-                            accountName =
-                                accountType + ":" +
-                                ofxAccount.AccountId.Substring(ofxAccount.AccountId.Length - 4),
-                            accountType = accountType.ToString(),
-                            currency = "USD",
-                            fiAccountID = accountId
-                        });
+                            accountType = AccountType.Checking;
+                            accountId = ((OFX.Types.CheckingAccount) ofxAccount).RoutingId + ":" + ofxAccount.AccountId;
+                        }
+                        else if (ofxAccount.GetType() == typeof (OFX.Types.SavingsAccount))
+                        {
+                            accountType = AccountType.Savings;
+                            accountId = ((OFX.Types.CheckingAccount) ofxAccount).RoutingId + ":" + ofxAccount.AccountId;
+                        }
+                        else if (ofxAccount.GetType() == typeof (OFX.Types.CreditCardAccount))
+                        {
+                            accountType = AccountType.Creditcard;
+                            accountId = ofxAccount.AccountId;
+                        }
+
+                        // Look for a matching account in the database
+                        if (!db.Accounts.Any(a => a.FiAccountId == accountId))
+                        {
+                            // This account is not already in the DB, add to new account list
+                            accountList.Add(new Account
+                            {
+                                AccountName =
+                                    accountType + ":" +
+                                    ofxAccount.AccountId.Substring(ofxAccount.AccountId.Length - 4),
+                                AccountType = accountType.ToString(),
+                                Currency = "USD",
+                                FiAccountId = accountId
+                            });
+                        }
                     }
                 }
+
+                // Return the finalized list of new accounts
+                return accountList;
             }
-
-            // Return the finalized list of new accounts
-            return accountList;
         }
-    }
+
+
+        /// <summary>
+        /// Delete the specified account from the database.
+        /// Deletes all transactions and removes the FIUser if there are no other accounts attached.
+        /// </summary>
+        /// <param name="account">Account to delete</param>
+        public static void DeleteAccount(Account account)
+        {
+            using (var db = new SoCashDbContext())
+            {
+                // Retrieve matching account from DB - we need to get an entity in the current db session
+                var deleteAccount = db.Accounts.First(dbAccount => dbAccount.AccountId == account.AccountId);
+
+                // Delete fiUser if this is the only account referencing it
+                if (deleteAccount.FinancialInstitutionUser != null &&
+                    deleteAccount.FinancialInstitutionUser.Accounts.Count == 1)
+                    db.FinancialInstitutionUsers.Remove(deleteAccount.FinancialInstitutionUser);
+
+                // Remove the account
+                db.Accounts.Remove(deleteAccount);
+
+                // Commit to db
+                db.SaveChanges();
+            }
+        }
 
 
 
+    } // class
 
-}
+} // namespace

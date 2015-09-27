@@ -2,14 +2,13 @@
 namespace SoDotCash.Views
 {
     /// <summary>
-    /// Interaction logic for AccountsView.xaml
+    /// Interaction logic for WelcomeView.xaml
     /// </summary>
-    public partial class AccountsView
+    public partial class WelcomeView
     {
-        public AccountsView()
+        public WelcomeView()
         {
             InitializeComponent();
         }
-
     }
 }

@@ -3,9 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             xmlns:local="clr-namespace:SoDotCash.Views"
              xmlns:utility="clr-namespace:SoDotCash.Utility"
              xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity"
+             xmlns:charting="clr-namespace:System.Windows.Controls.DataVisualization.Charting;assembly=System.Windows.Controls.DataVisualization.Toolkit"
+             xmlns:models="clr-namespace:SoDotCash.Models"
              mc:Ignorable="d"
              Height="350" Width="950"
              DataContext="{Binding Accounts, Source={StaticResource Locator}}"
@@ -19,7 +20,7 @@
             </Grid.RowDefinitions>
 
             <Label Content="Accounts" HorizontalAlignment="Center" Margin="10,0,120,0" />
-            <Button x:Name="addAccount" Content="Add Account" HorizontalAlignment="Left" Margin="103,3,0,0" VerticalAlignment="Top" Width="75" Command="{Binding AddAccountCommand}"/>
+            <Button Grid.Row="0" x:Name="AddAccount" Content="Add Account" HorizontalAlignment="Left" Margin="103,3,0,0" VerticalAlignment="Top" Width="75" Command="{Binding AddAccountCommand}"/>
 
             <TreeView Grid.Row="1" Margin="10,0,10,10" ItemsSource="{Binding AccountsView}">
                 <i:Interaction.Behaviors>
@@ -39,8 +40,8 @@
                     <HierarchicalDataTemplate ItemsSource="{Binding Path=Value}">
                         <TextBlock Text="{Binding Path=Key}" />
                         <HierarchicalDataTemplate.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Path=accountName}"/>
+                            <DataTemplate DataType="models:Account">
+                                <TextBlock Text="{Binding Path=AccountName}"/>
                             </DataTemplate>
                         </HierarchicalDataTemplate.ItemTemplate>
                     </HierarchicalDataTemplate>
@@ -48,55 +49,72 @@
             </TreeView>
 
         </Grid>
-        <TabControl x:Name="tabControl" HorizontalAlignment="Left" Margin="206,5,10,21" VerticalAlignment="Top" SelectedIndex="{Binding ActiveTabIndex}">
+        <TabControl x:Name="TabControl" HorizontalAlignment="Left" Margin="206,5,10,21" VerticalAlignment="Top" SelectedIndex="{Binding ActiveTabIndexAsInt}">
             <TabItem Header="Overview">
-                <Grid  Width="740" Height="300">
-                    <Label Content="TODO: Fill this in (Overview)"/>
+                <Grid  Width="730" Height="300">
+                    <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal">
+                            <Grid Margin="0,20,0,0">
+                                <charting:Chart x:Name="Chart" Width="550" Height="250">
+                                    <charting:Chart.Axes>
+                                        <charting:DateTimeAxis Name="XAxis" ShowGridLines="True" Orientation="X" />
+                                        <charting:LinearAxis Orientation="Y" ShowGridLines="True"/>
+                                    </charting:Chart.Axes>
+                                    <charting:Chart.Series>
+                                        <charting:LineSeries ItemsSource="{Binding Transactions}"
+                    DependentValueBinding="{Binding Path=LocalizedBalance}"
+                    IndependentValuePath="Date"
+                    Title="Historical Balance" IsSelectionEnabled="True" />
+                                    </charting:Chart.Series>
+                                </charting:Chart>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
                 </Grid>
             </TabItem>
             <TabItem Header="Ledger">
-                <Grid  Width="740" Height="300">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="71*"/>
-                        <ColumnDefinition Width="114*"/>
-                    </Grid.ColumnDefinitions>
-                    <ListView ItemsSource="{Binding Transactions}" Grid.ColumnSpan="2">
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="Date" DisplayMemberBinding="{Binding date, StringFormat=\{0:d\}}" />
-                                <GridViewColumn Header="Name" DisplayMemberBinding="{Binding description}" />
-                                <GridViewColumn Header="Amount" DisplayMemberBinding="{Binding localizedAmount, StringFormat=\{0:C2\}}" >
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="{x:Type TextBlock}"/>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="Transaction ID" DisplayMemberBinding="{Binding fiTransactionId}" />
-                                <GridViewColumn Header="Account Balance" DisplayMemberBinding="{Binding localizedBalance, StringFormat=\{0:C2\}}" />
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
+                <Grid  Width="730" Height="300">
+                    <Grid.Resources>
+                        <FrameworkElement x:Key="ProxyElement" DataContext="{Binding}"/>
+                    </Grid.Resources>
+                    <ContentControl Visibility="Collapsed" Content="{StaticResource ProxyElement}"/>
+                    <DataGrid Name="DatagridTransactions" ItemsSource="{Binding Transactions}" CanUserAddRows="{Binding IsManualAccount}" SelectionUnit="FullRow" SelectionMode="Single"
+                              CanUserDeleteRows="{Binding IsManualAccount}" AutoGenerateColumns="False" SelectedItem="{Binding SelectedTransaction, Mode=TwoWay}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=\{0:d\}, UpdateSourceTrigger=PropertyChanged}" Width="70"
+                                                IsReadOnly="{Binding DataContext.IsManualAccount, Source={StaticResource ProxyElement}, Converter={StaticResource BoolToInverseBoolConverter}}"/>
+                            <DataGridTextColumn Header="Description" Binding="{Binding Description, UpdateSourceTrigger=PropertyChanged}" Width="200"
+                                                IsReadOnly="{Binding DataContext.IsManualAccount, Source={StaticResource ProxyElement}, Converter={StaticResource BoolToInverseBoolConverter}}"/>
+                            <DataGridTextColumn Header="Transaction ID" Binding="{Binding FiTransactionId, UpdateSourceTrigger=PropertyChanged}" Width="200" 
+                                                IsReadOnly="{Binding DataContext.IsManualAccount, Source={StaticResource ProxyElement}, Converter={StaticResource BoolToInverseBoolConverter}}"/>
+                            <DataGridTextColumn Header="CategoryName" Binding="{Binding CategoryName, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                            <DataGridTextColumn Header="Amount" Binding="{Binding LocalizedAmount, StringFormat=\{0:C2\}, UpdateSourceTrigger=PropertyChanged}" Width="70" 
+                                                IsReadOnly="{Binding DataContext.IsManualAccount, Source={StaticResource ProxyElement}, Converter={StaticResource BoolToInverseBoolConverter}}"/>
+                            <DataGridTextColumn Header="Balance" Binding="{Binding LocalizedBalance, StringFormat=\{0:C2\}}" Width="80" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                        <DataGrid.InputBindings>
+                            <KeyBinding Key="Delete" Command="{Binding DeleteTransactionCommand}" />
+                        </DataGrid.InputBindings>
+                    </DataGrid>
                 </Grid>
             </TabItem>
             <TabItem Header="Import">
-                <Grid  Width="740" Height="300">
+                <Grid  Width="730" Height="300">
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="This section allows you to import transactions from an OFX/QFX file. If this account is linked with a supported online financial institution, you may also download transactions." TextWrapping="Wrap"/>
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="button_importTransactions" Content="Import Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding ImportTransactionsCommand}" />
-                            <Button x:Name="button_downloadTransactions" Content="Download Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding DownloadTransactionsCommand}" Margin="20,0,0,0"/>
+                            <Button x:Name="ButtonImportTransactions" Content="Import Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding ImportTransactionsCommand}" />
+                            <Button x:Name="ButtonDownloadTransactions" Content="Download Transactions" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding DownloadTransactionsCommand}" Margin="20,0,0,0"/>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
             </TabItem>
             <TabItem Header="Configuration">
-                <Grid  Width="740" Height="300">
-                    <Label Content="TODO: Fill this in (Configuration)"/>
+                <Grid  Width="730" Height="300">
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="TODO: Fill this in (Configuration)"  TextWrapping="Wrap"/>
+                        <Button x:Name="ButtonDeleteAccount" Content="Delete Account" HorizontalAlignment="Left" VerticalAlignment="Top" Width="149" Command="{Binding DeleteAccountCommand}" />
+                    </StackPanel>
                 </Grid>
             </TabItem>
         </TabControl>

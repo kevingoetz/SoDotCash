@@ -6,51 +6,62 @@ namespace SoDotCash.Models
 {
 
     [Table("Transaction")]
-    public class Transaction
+    public class Transaction : EditableEntity
     {
+        public Transaction()
+        {
+            // Default date to today
+            Date = DateTime.Now;
+            FiTransactionId = "";
+            CategoryName = "";
+        }
 
         [Key]
-        public int transactionId { get; set; }
+        public int TransactionId { get; set; }
 
-        public int accountId { get; set; }
+        public int AccountId { get; set; }
 
         [StringLength(50)]
-        public string fiTransactionId { get; set; }
+        public string FiTransactionId { get; set; }
 
         [StringLength(100)]
-        public string description { get; set; }
+        public string Description { get; set; }
 
         [StringLength(25)]
-        public string category { get; set; }
+        public string CategoryName { get; set; }
 
-        [StringLength(3)]
-        public string currency { get; set; }
+        [Column(TypeName="datetime")]
+        public DateTime Date { get; set; }
 
-        [Column(TypeName="Date")]
-        public DateTime date { get; set; }
+        public int Amount { get; set; }
 
-        public int amount { get; set; }
-
-        [InverseProperty("transactions")]
-        [ForeignKey("accountId")]
-        public virtual Account account { get; set; }
+        [InverseProperty("Transactions")]
+        [ForeignKey("AccountId")]
+        [Required]
+        public virtual Account Account { get; set; }
 
         /// <summary>
         /// Unmapped balance data. Must be filled in on load.
         /// </summary>
         [NotMapped]
-        public int balance { get; set; }
+        public int Balance { get; set; }
 
         /// <summary>
         /// Proxy property which converts the balance in cents into dollars
         /// </summary>
-        public decimal localizedBalance => balance/100m;
+        public decimal LocalizedBalance => Balance/100m;
 
         /// <summary>
         /// Proxy property which converts the amount in cents into dollars
         /// TODO: Handle different currency types
         /// </summary>
-        public decimal localizedAmount => amount / 100m;
+        public decimal LocalizedAmount
+        {
+            get { return Amount/100m; }
+            set { Amount = (int) (value*100m); }
+        }
+
+
     }
 
 }
