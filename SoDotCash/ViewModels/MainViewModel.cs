@@ -1,26 +1,20 @@
-using System.Collections.Generic;
+using System;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using FirstFloor.ModernUI.Presentation;
 using GalaSoft.MvvmLight;
-using OFX.Types;
-using SoDotCash.Services;
-using SoDotCash.Models;
+using SoDotCash.ViewModels.Navigation;
+using RelayCommand = GalaSoft.MvvmLight.CommandWpf.RelayCommand;
 
 namespace SoDotCash.ViewModels
 {
-    /// <summary>
-    /// This class contains properties that the main View can data bind to.
-    /// <para>
-    /// Use the <strong>mvvminpc</strong> snippet to add bindable properties to this ViewModel.
-    /// </para>
-    /// <para>
-    /// You can also use Blend to data bind with the tool's support.
-    /// </para>
-    /// <para>
-    /// See http://www.galasoft.ch/mvvm
-    /// </para>
-    /// </summary>
-    public class MainViewModel : ViewModelBase
-    {
 
+    /// <summary>
+    /// The main application window. This is a shell for views displayed within
+    /// </summary>
+    public class MainViewModel : ModernViewModelBase
+    {
         #region [ Public Bound Properties ]
 
         /// <summary>
@@ -45,21 +39,59 @@ namespace SoDotCash.ViewModels
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
         /// </summary>
-        public MainViewModel()
+        public MainViewModel(IModernNavigationService navService)
         {
-            // Initialize the databas
-            DataService.InitDb();
+            ViewLoaded = new RelayCommand(Loaded);
 
-            // Determing initial view
-            var locator = new ViewModelLocator();
+            // Load our settings from the saved configuration (if present)
+            LoadSettings();
+        }
 
-            // If there are accounts, start in the accounts view
-            if (DataService.AnyExistAccounts())
-                ActiveViewModel = locator.Accounts;
-            else
-                // No existing accounts, show welcome screen
-                ActiveViewModel = locator.Welcome;
+        /// <summary>
+        /// Command handling the view loaded event
+        /// </summary>
+        public ICommand ViewLoaded { get; }
 
+        /// <summary>
+        /// Called when this view is loaded
+        /// </summary>
+        private void Loaded()
+        {
+            NavigationCommands.GoToPage.Execute("/Views/Initializing.xaml",
+                NavigationService.GetDescendantFromName(Application.Current.MainWindow));
+        }
+
+        /// <summary>
+        /// Load application settings from saved configuration and apply
+        /// </summary>
+        private void LoadSettings()
+        {
+            //load user visual preferences
+            switch (Properties.Settings.Default.Theme)
+            {
+                default:
+                // ReSharper disable once RedundantCaseLabel we may add more themes at a later date
+                case "dark":
+                    AppearanceManager.Current.ThemeSource = AppearanceManager.DarkThemeSource;
+                    break;
+                case "light":
+                    AppearanceManager.Current.ThemeSource = AppearanceManager.LightThemeSource;
+                    break;
+            }
+            
+            //Try to convert the color in the config file to be a color
+            //  if any of it fails then leave it to the default color
+            try
+            {   
+                var colorFromString = ColorConverter.ConvertFromString(Properties.Settings.Default.Accent) ??
+                                      ColorConverter.ConvertFromString("#FF1BA1E2");
+
+                AppearanceManager.Current.AccentColor = (Color)colorFromString;
+            }
+            catch (Exception)
+            {
+                AppearanceManager.Current.AccentColor = (Color)ColorConverter.ConvertFromString("#FF1BA1E2");
+            }
         }
 
         #endregion

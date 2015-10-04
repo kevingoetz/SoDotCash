@@ -1,14 +1,21 @@
 ﻿using System.Windows.Input;
-using GalaSoft.MvvmLight;
 using GalaSoft.MvvmLight.CommandWpf;
+using SoDotCash.ViewModels.Navigation;
 
 namespace SoDotCash.ViewModels
 {
     /// <summary>
     /// This class contains the buisiness logic interface for the Welcome View
     /// </summary>
-    public class WelcomeViewModel : ViewModelBase
+    public class WelcomeViewModel : ModernViewModelBase
     {
+        private readonly IModernNavigationService _modernNavigationService;
+
+        public WelcomeViewModel(IModernNavigationService navService)
+        {
+            _modernNavigationService = navService;
+        }
+
         /// <summary>
         /// Binding for the Download Transactions button
         /// </summary>
@@ -24,8 +31,10 @@ namespace SoDotCash.ViewModels
         public void GetStarted()
         {
             // Transition view to add account
-            var locator = new ViewModelLocator();
-            locator.Main.ActiveViewModel = locator.AddAccount;
+            _modernNavigationService.NavigateTo(nameof(ViewModelLocator.AddAccount));
+
+            // Do not allow navigation back to welcome screen
+            _modernNavigationService.ClearNavigationHistory();
         }
     }
 }

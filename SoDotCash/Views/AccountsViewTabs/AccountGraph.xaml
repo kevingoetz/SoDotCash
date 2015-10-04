@@ -1,0 +1,179 @@
+﻿<UserControl x:Class="SoDotCash.Views.AccountsViewTabs.AccountGraph"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:SoDotCash.Views.AccountsViewTabs"
+             xmlns:datavis="clr-namespace:System.Windows.Controls.DataVisualization;assembly=System.Windows.Controls.DataVisualization.Toolkit"
+             xmlns:charting="clr-namespace:System.Windows.Controls.DataVisualization.Charting;assembly=System.Windows.Controls.DataVisualization.Toolkit"
+             xmlns:primitives="clr-namespace:System.Windows.Controls.DataVisualization.Charting.Primitives;assembly=System.Windows.Controls.DataVisualization.Toolkit"
+             mc:Ignorable="d" 
+             DataContext="{Binding Source={StaticResource Locator}, Path=Accounts}"
+             >
+    <Grid>
+        <Grid.Resources>
+            <Style x:Key="DateTimeAxisLabelStyle" TargetType="{x:Type charting:DateTimeAxisLabel}">
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="StringFormat" Value="{}{0:MMM d}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type charting:DateTimeAxisLabel}">
+                            <TextBlock Text="{TemplateBinding FormattedContent}" FontSize="10"/>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <ControlTemplate x:Key="CommonLineSeriesDataPointTemplate" TargetType="charting:LineDataPoint">
+                <!--Comment out data points from the default template; just an empty template-->
+                <Grid x:Name="Root" Opacity="1"/>
+            </ControlTemplate>
+            <Style x:Key="CommonLineSeriesDataPointBlue" TargetType="charting:LineDataPoint">
+                <Setter Property="IndependentValueStringFormat" Value="{}{0:yyyy}" />
+                <Setter Property="DependentValueStringFormat" Value="{}{0:c0}" />
+                <Setter Property="Background" Value="#FF0077CC" />
+                <Setter Property="BorderBrush" Value="White" />
+                <Setter Property="BorderThickness" Value="2" />
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="Template" Value="{StaticResource CommonLineSeriesDataPointTemplate}" />
+            </Style>
+            <Style x:Key="CommonLineSeriesDataPointRed" TargetType="charting:LineDataPoint" BasedOn="{StaticResource CommonLineSeriesDataPointBlue}">
+                <Setter Property="Background" Value="Red" />
+            </Style>
+            <Style TargetType="charting:LineSeries">
+                <Setter Property="DataPointStyle" Value="{StaticResource CommonLineSeriesDataPointBlue}" />
+            </Style>
+        </Grid.Resources>
+        <Grid>
+            <StackPanel Orientation="Vertical">
+                <GroupBox Header="{Binding SelectedAccount.AccountName}" Visibility="{Binding HasSelectedAccount, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <DockPanel>
+                        <Grid Width="160" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <StackPanel Orientation="Vertical">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="High Balance:"/>
+                                    <TextBlock Text="{Binding AccountHighBalance.Balance, StringFormat=\{0:C2\}}"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="on"/>
+                                    <TextBlock Text="{Binding AccountHighBalance.Date, StringFormat=\{0:d\}}" Margin="5,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="Low Balance:"/>
+                                    <TextBlock Text="{Binding AccountLowBalance.Balance, StringFormat=\{0:C2\}}"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="on"/>
+                                    <TextBlock Text="{Binding AccountLowBalance.Date, StringFormat=\{0:d\}}"  Margin="5,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="Average Balance:"/>
+                                    <TextBlock Text="{Binding AccountAvgBalance, StringFormat=\{0:C2\}}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                        <charting:Chart Width="550" Height="130" DockPanel.Dock="Right">
+                            <charting:Chart.LegendStyle>
+                                <Style TargetType="datavis:Legend">
+                                    <Setter Property="Width" Value="0" />
+                                </Style>
+                            </charting:Chart.LegendStyle>
+                            <charting:LineSeries ItemsSource="{Binding SelectedAccountDailyBalances}"
+                                        DependentValuePath="Balance"
+									    IndependentValuePath="Date"
+									    Title="Historical Balance"
+                                        IsSelectionEnabled="True">
+                                <charting:LineSeries.IndependentAxis>
+                                    <charting:DateTimeAxis Orientation="X"
+                                                ShowGridLines="True"
+                                                AxisLabelStyle="{StaticResource DateTimeAxisLabelStyle}"/>
+                                </charting:LineSeries.IndependentAxis>
+                            </charting:LineSeries>
+                            <charting:Chart.Template>
+                                <ControlTemplate TargetType="charting:Chart">
+                                    <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                Padding="{TemplateBinding Padding}">
+                                        <Grid>
+                                            <primitives:EdgePanel x:Name="ChartArea" Style="{TemplateBinding ChartAreaStyle}">
+                                                <Grid Canvas.ZIndex="-1" Style="{TemplateBinding PlotAreaStyle}" />
+                                                <Border Canvas.ZIndex="10" BorderBrush="#FF919191" BorderThickness="1" />
+                                            </primitives:EdgePanel>
+                                        </Grid>
+                                    </Border>
+                                </ControlTemplate>
+                            </charting:Chart.Template>
+                        </charting:Chart>
+                    </DockPanel>
+                </GroupBox>
+
+                <GroupBox Header="All Accounts">
+                    <DockPanel>
+                        <Grid Width="160" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <StackPanel Orientation="Vertical">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="High Balance:"/>
+                                    <TextBlock Text="{Binding SumHighBalance.Balance, StringFormat=\{0:C2\}}"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="on"/>
+                                    <TextBlock Text="{Binding SumHighBalance.Date, StringFormat=\{0:d\}}" Margin="5,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="Low Balance:"/>
+                                    <TextBlock Text="{Binding SumLowBalance.Balance, StringFormat=\{0:C2\}}"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="on"/>
+                                    <TextBlock Text="{Binding SumLowBalance.Date, StringFormat=\{0:d\}}"  Margin="5,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="Average Balance:"/>
+                                    <TextBlock Text="{Binding SumAvgBalance, StringFormat=\{0:C2\}}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                        <charting:Chart Width="550" Height="130" DockPanel.Dock="Right">
+                            <charting:Chart.LegendStyle>
+                                <Style TargetType="datavis:Legend">
+                                    <Setter Property="Width" Value="0" />
+                                </Style>
+                            </charting:Chart.LegendStyle>
+                            <charting:LineSeries ItemsSource="{Binding SumDailyBalances}"
+                                        DependentValuePath="Balance"
+									    IndependentValuePath="Date"
+									    Title="Historical Balance"
+                                        IsSelectionEnabled="True" 
+                                        DataPointStyle="{StaticResource CommonLineSeriesDataPointRed}">
+                                <charting:LineSeries.IndependentAxis>
+                                    <charting:DateTimeAxis Orientation="X"
+                                                ShowGridLines="True"
+                                                AxisLabelStyle="{StaticResource DateTimeAxisLabelStyle}"/>
+                                </charting:LineSeries.IndependentAxis>
+                            </charting:LineSeries>
+                          
+                            <charting:Chart.Template>
+                                <ControlTemplate TargetType="charting:Chart">
+                                    <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                Padding="{TemplateBinding Padding}">
+                                        <Grid>
+                                            <primitives:EdgePanel x:Name="ChartArea" Style="{TemplateBinding ChartAreaStyle}">
+                                                <Grid Canvas.ZIndex="-1" Style="{TemplateBinding PlotAreaStyle}" />
+                                                <Border Canvas.ZIndex="10" BorderBrush="#FF919191" BorderThickness="1" />
+                                            </primitives:EdgePanel>
+                                        </Grid>
+                                    </Border>
+                                </ControlTemplate>
+                            </charting:Chart.Template>
+                        </charting:Chart>
+                    </DockPanel>
+                </GroupBox>
+            </StackPanel>
+        </Grid>
+
+
+    </Grid>
+
+</UserControl>

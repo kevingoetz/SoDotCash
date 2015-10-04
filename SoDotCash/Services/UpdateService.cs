@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using OFX;
 using SoDotCash.Models;
 
@@ -23,10 +24,10 @@ namespace SoDotCash.Services
         {
             using (BackgroundTaskTracker.BeginTask("Processing Transactions"))
             {
-                using (var db = new SoCashDbContext())
+                using (var dataService = new DataService())
                 {
                     // Retrieve matching account from DB - we need to get an entity in the current db session
-                    var updateAccount = db.Accounts.First(dbAccount => dbAccount.AccountId == account.AccountId);
+                    var updateAccount = dataService.GetAccountById(account.AccountId);
 
                     // If the account has no account ID set, set it from the imported statement
                     if (updateAccount.FiAccountId == null)
@@ -115,9 +116,6 @@ namespace SoDotCash.Services
                             updateAccount.Transactions.Add(fillerTransaction);
                         }
                     }
-
-
-                    db.SaveChanges();
                 }
             }
         }
@@ -130,10 +128,25 @@ namespace SoDotCash.Services
         /// <param name="ofxFileStream">Open and positioned readable stream containing an OFX statement</param>
         public static void MergeOfxFileIntoAccount(Account account, Stream ofxFileStream)
         {
-            // Deserialize the OFX file data to an object form
-            var converter = new OFX1ToOFX2Converter(ofxFileStream);
-            foreach (var statement in OFX.Types.Statement.CreateFromOFXResponse(converter.ConvertToOFX()))
-                MergeStatementTransactionsIntoAccount(account, statement);
+            using (BackgroundTaskTracker.BeginTask("Importing Transactions"))
+            {
+
+                // Deserialize the OFX file data to an object form
+                var converter = new OFX1ToOFX2Converter(ofxFileStream);
+                string errorMessage;
+
+                var statements = OFX.Types.Statement.CreateFromOFXResponse(converter.ConvertToOFX(), out errorMessage);
+
+                if (!String.IsNullOrEmpty(errorMessage) || !String.IsNullOrWhiteSpace(errorMessage))
+                {
+                    MessageBox.Show(errorMessage, "Error");
+                }
+
+                else
+                    foreach (var statement in statements)
+                        MergeStatementTransactionsIntoAccount(account, statement);
+            }
+
         }
 
         /// <summary>
@@ -166,10 +179,10 @@ namespace SoDotCash.Services
                 var endTime = DateTimeOffset.Now;
                 var startTime = new DateTimeOffset(new DateTime(1997, 1, 1));
 
-                using (var db = new SoCashDbContext())
+                using (var dataService = new DataService())
                 {
                     // Retrieve matching account from DB - we need to get an entity in the current db session
-                    var updateAccount = db.Accounts.First(dbAccount => dbAccount.AccountId == account.AccountId);
+                    var updateAccount = dataService.GetAccountById(account.AccountId);
 
                     // Form FI connection properties for transaction retrieval
                     var fi = new OFX.Types.FinancialInstitution(
@@ -229,7 +242,13 @@ namespace SoDotCash.Services
 
                 // Retrieve statement(s) (should only be one per protocol, but we can handle any number)
                 var ofxStatments = await ofxService.GetStatement(ofxAccount, startTime, endTime).ConfigureAwait(false);
-                foreach (var ofxStatement in ofxStatments)
+
+                if (!String.IsNullOrEmpty(ofxStatments.Item2) || !String.IsNullOrWhiteSpace(ofxStatments.Item2))
+                {
+                    MessageBox.Show(ofxStatments.Item2, "Error");
+                }
+
+                foreach (var ofxStatement in ofxStatments.Item1)
                     MergeStatementTransactionsIntoAccount(account, ofxStatement);
             }
 
@@ -252,12 +271,10 @@ namespace SoDotCash.Services
                 var accountList = new List<Account>();
                 var ofxAccountList = await ofxService.ListAccounts().ConfigureAwait(false);
 
-                // TODO: If ofxAccountList is null, raise an exception
+                // TODO: If ofxAccountList is null, raise a more detailed exception
 
-                using (var db = new SoCashDbContext())
+                using (var dataService = new DataService())
                 {
-
-
                     foreach (var ofxAccount in ofxAccountList)
                     {
                         // Convert from OFX account type to db account type and encode account id 
@@ -271,7 +288,7 @@ namespace SoDotCash.Services
                         else if (ofxAccount.GetType() == typeof (OFX.Types.SavingsAccount))
                         {
                             accountType = AccountType.Savings;
-                            accountId = ((OFX.Types.CheckingAccount) ofxAccount).RoutingId + ":" + ofxAccount.AccountId;
+                            accountId = ((OFX.Types.SavingsAccount) ofxAccount).RoutingId + ":" + ofxAccount.AccountId;
                         }
                         else if (ofxAccount.GetType() == typeof (OFX.Types.CreditCardAccount))
                         {
@@ -280,7 +297,7 @@ namespace SoDotCash.Services
                         }
 
                         // Look for a matching account in the database
-                        if (!db.Accounts.Any(a => a.FiAccountId == accountId))
+                        if (!dataService.GetAccountByFinancialId(accountId).Any())
                         {
                             // This account is not already in the DB, add to new account list
                             accountList.Add(new Account
@@ -301,34 +318,29 @@ namespace SoDotCash.Services
             }
         }
 
-
         /// <summary>
-        /// Delete the specified account from the database.
-        /// Deletes all transactions and removes the FIUser if there are no other accounts attached.
+        /// Verify the provided account credentials. Raises an exception if validation fails
         /// </summary>
-        /// <param name="account">Account to delete</param>
-        public static void DeleteAccount(Account account)
+        /// <param name="financialInstitution">Financial institution to query</param>
+        /// <param name="fiCredentials">Credentials for financial institution account</param>
+        /// <returns>List of accounts</returns>
+        public static async Task VerifyAccountCredentials(FinancialInstitution financialInstitution,
+            OFX.Types.Credentials fiCredentials)
         {
-            using (var db = new SoCashDbContext())
+            using (BackgroundTaskTracker.BeginTask("Verifying Credentials"))
             {
-                // Retrieve matching account from DB - we need to get an entity in the current db session
-                var deleteAccount = db.Accounts.First(dbAccount => dbAccount.AccountId == account.AccountId);
 
-                // Delete fiUser if this is the only account referencing it
-                if (deleteAccount.FinancialInstitutionUser != null &&
-                    deleteAccount.FinancialInstitutionUser.Accounts.Count == 1)
-                    db.FinancialInstitutionUsers.Remove(deleteAccount.FinancialInstitutionUser);
+                // Convert from data model FI into OFX FI
+                var ofxFinancialInstitition = new OFX.Types.FinancialInstitution(financialInstitution.Name,
+                    new Uri(financialInstitution.OfxUpdateUrl), financialInstitution.OfxOrganizationId,
+                    financialInstitution.OfxFinancialUnitId);
 
-                // Remove the account
-                db.Accounts.Remove(deleteAccount);
+                var ofxService = new OFX2Service(ofxFinancialInstitition, fiCredentials);
 
-                // Commit to db
-                db.SaveChanges();
+                // Call list accounts to validate credentials
+                await ofxService.ListAccounts().ConfigureAwait(false);
             }
         }
-
-
-
     } // class
 
 } // namespace

@@ -1,11 +1,11 @@
 ﻿namespace SoDotCash.Views
 {
     /// <summary>
-    /// Interaction logic for MainWindow.xaml
+    /// Interaction logic for Initializing.xaml
     /// </summary>
-    public partial class MainWindow
+    public partial class Initializing
     {
-        public MainWindow()
+        public Initializing()
         {
             InitializeComponent();
         }

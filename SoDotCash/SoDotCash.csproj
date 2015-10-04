@@ -30,7 +30,7 @@
     <InstallUrl>https://dl.dropboxusercontent.com/u/24980598/SoDotCash/</InstallUrl>
     <CreateWebPageOnPublish>true</CreateWebPageOnPublish>
     <WebPage>publish.htm</WebPage>
-    <ApplicationRevision>5</ApplicationRevision>
+    <ApplicationRevision>8</ApplicationRevision>
     <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
@@ -105,7 +105,7 @@
     <GenerateManifests>true</GenerateManifests>
   </PropertyGroup>
   <PropertyGroup>
-    <SignManifests>true</SignManifests>
+    <SignManifests>false</SignManifests>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>cash-flow.ico</ApplicationIcon>
@@ -121,6 +121,10 @@
     </Reference>
     <Reference Include="EntityFramework.SqlServerCompact, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089, processorArchitecture=MSIL">
       <HintPath>..\packages\EntityFramework.SqlServerCompact.6.1.3\lib\net45\EntityFramework.SqlServerCompact.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="FirstFloor.ModernUI, Version=1.0.6.0, Culture=neutral, PublicKeyToken=2d21ec3cd074c59a, processorArchitecture=MSIL">
+      <HintPath>..\packages\ModernUI.WPF.1.0.6\lib\net45\FirstFloor.ModernUI.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="GalaSoft.MvvmLight, Version=5.2.0.37222, Culture=neutral, PublicKeyToken=e7570ab207bcb616, processorArchitecture=MSIL">
@@ -141,6 +145,7 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Data" />
     <Reference Include="System.Data.SqlServerCe, Version=4.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91, processorArchitecture=MSIL" />
     <Reference Include="System.Deployment" />
@@ -211,6 +216,9 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="Converters\BoolToInverseBoolConverter.cs" />
+    <Compile Include="Converters\InverterConverter.cs" />
+    <Compile Include="Converters\NumberToIsPositiveConverter.cs" />
+    <Compile Include="Converters\IsNotNullConverter.cs" />
     <Compile Include="Models\Account.cs" />
     <Compile Include="Models\AccountTypes.cs" />
     <Compile Include="Models\EditableEntity.cs" />
@@ -219,6 +227,7 @@
     <Compile Include="Models\SoCashDbContext.cs" />
     <Compile Include="Models\Transaction.cs" />
     <Compile Include="Services\BackgroundTaskTracker.cs" />
+    <Compile Include="Services\BaseService.cs" />
     <Compile Include="Services\DataService.cs" />
     <Compile Include="Services\UpdateService.cs" />
     <Compile Include="SoCash.Designer.cs">
@@ -227,20 +236,66 @@
       <DependentUpon>SoCash.xsd</DependentUpon>
     </Compile>
     <Compile Include="Utility\BindableSelectedItemBehavior.cs" />
-    <Compile Include="Utility\InverterConverter.cs" />
     <Compile Include="ViewModels\AccountsViewModel.cs" />
     <Compile Include="ViewModels\AddAccountViewModel.cs" />
+    <Compile Include="ViewModels\InitViewModel.cs" />
     <Compile Include="ViewModels\MainViewModel.cs" />
+    <Compile Include="ViewModels\ModernViewModelBase.cs" />
+    <Compile Include="ViewModels\Navigation\IModernNavigationService.cs" />
+    <Compile Include="ViewModels\Navigation\NavigationService.cs" />
+    <Compile Include="ViewModels\SettingsViewModel.cs" />
     <Compile Include="ViewModels\ViewModelLocator.cs" />
     <Compile Include="ViewModels\WelcomeViewModel.cs" />
+    <Compile Include="Views\AccountsViewTabs\AccountGraph.xaml.cs">
+      <DependentUpon>AccountGraph.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\AccountsViewTabs\AccountImport.xaml.cs">
+      <DependentUpon>AccountImport.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\AccountsViewTabs\AccountConfiguration.xaml.cs">
+      <DependentUpon>AccountConfiguration.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\AccountsViewTabs\AccountLedger.xaml.cs">
+      <DependentUpon>AccountLedger.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Initializing.xaml.cs">
+      <DependentUpon>Initializing.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\SettingsView.xaml.cs">
+      <DependentUpon>SettingsView.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Views\WelcomeView.xaml.cs">
       <DependentUpon>WelcomeView.xaml</DependentUpon>
     </Compile>
+    <Page Include="ModernWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Styles.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Views\AccountsView.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\AccountsViewTabs\AccountGraph.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\AccountsViewTabs\AccountImport.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\AccountsViewTabs\AccountConfiguration.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\AccountsViewTabs\AccountLedger.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\Initializing.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -266,6 +321,10 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Page Include="Views\SettingsView.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Views\WelcomeView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

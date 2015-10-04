@@ -1,5 +1,4 @@
-﻿
-namespace SoDotCash
+﻿namespace SoDotCash
 {
     /// <summary>
     /// Interaction logic for App.xaml
